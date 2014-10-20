@@ -1,0 +1,51 @@
+{
+   "abstract" : "Messaging services for an Ado system!",
+   "author" : [
+      "ÐÑÐ°ÑÐ¸Ð¼Ð¸Ñ ÐÐµÑÐ¾Ð² <berov@cpan.org>"
+   ],
+   "dynamic_config" : 1,
+   "generated_by" : "Module::Build version 0.421",
+   "license" : [
+      "lgpl_3_0"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "Ado-Plugin-Vest",
+   "prereqs" : {
+      "build" : {
+         "requires" : {
+            "Test::More" : "0"
+         }
+      },
+      "configure" : {
+         "requires" : {
+            "Ado" : "0.67",
+            "Module::Build" : "0.42"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "Ado" : "0.67",
+            "Mojolicious" : "0",
+            "Mojolicious::Plugin::DSC" : "0",
+            "Mojolicious::Plugin::SemanticUI" : "0"
+         }
+      }
+   },
+   "provides" : {
+      "Ado::Control::Vest" : {
+         "file" : "lib/Ado/Control/Vest.pm"
+      },
+      "Ado::Model::Vest" : {
+         "file" : "lib/Ado/Model/Vest.pm"
+      },
+      "Ado::Plugin::Vest" : {
+         "file" : "lib/Ado/Plugin/Vest.pm",
+         "version" : "0.03"
+      }
+   },
+   "release_status" : "unstable",
+   "version" : "0.03"
+}
