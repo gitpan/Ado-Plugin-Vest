@@ -21,10 +21,10 @@ provides:
     file: lib/Ado/Model/Vest.pm
   Ado::Plugin::Vest:
     file: lib/Ado/Plugin/Vest.pm
-    version: '0.03'
+    version: '0.04'
 requires:
   Ado: '0.67'
   Mojolicious: '0'
   Mojolicious::Plugin::DSC: '0'
   Mojolicious::Plugin::SemanticUI: '0'
-version: '0.03'
+version: '0.04'

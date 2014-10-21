@@ -43,9 +43,9 @@
       },
       "Ado::Plugin::Vest" : {
          "file" : "lib/Ado/Plugin/Vest.pm",
-         "version" : "0.03"
+         "version" : "0.04"
       }
    },
    "release_status" : "unstable",
-   "version" : "0.03"
+   "version" : "0.04"
 }
