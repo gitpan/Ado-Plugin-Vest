@@ -5,6 +5,17 @@
    ],
    "dynamic_config" : 1,
    "generated_by" : "Module::Build version 0.421",
+   "keywords" : [
+      "Ado",
+      "Mojolicious",
+      "realtime",
+      "web",
+      "ERP",
+      "REST",
+      "CMS",
+      "Messaging",
+      "enterprise"
+   ],
    "license" : [
       "lgpl_3_0"
    ],
@@ -13,6 +24,11 @@
       "version" : "2"
    },
    "name" : "Ado-Plugin-Vest",
+   "no_index" : {
+      "namespace" : [
+         "Ado::Model"
+      ]
+   },
    "prereqs" : {
       "build" : {
          "requires" : {
@@ -42,9 +58,17 @@
       },
       "Ado::Plugin::Vest" : {
          "file" : "lib/Ado/Plugin/Vest.pm",
-         "version" : "0.05"
+         "version" : "0.06"
       }
    },
    "release_status" : "stable",
-   "version" : "0.05"
+   "resources" : {
+      "bugtracker" : {
+         "web" : "https://github.com/kberov/Ado-Plugin-Vest/issues"
+      },
+      "repository" : {
+         "url" : "https://github.com/kberov/Ado-Plugin-Vest"
+      }
+   },
+   "version" : "0.06"
 }
