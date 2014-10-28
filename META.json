@@ -21,13 +21,12 @@
       },
       "configure" : {
          "requires" : {
-            "Ado" : "0.67",
             "Module::Build" : "0.42"
          }
       },
       "runtime" : {
          "requires" : {
-            "Ado" : "0.67",
+            "Ado" : "0.70",
             "Mojolicious" : "0",
             "Mojolicious::Plugin::DSC" : "0",
             "Mojolicious::Plugin::SemanticUI" : "0"
@@ -43,9 +42,9 @@
       },
       "Ado::Plugin::Vest" : {
          "file" : "lib/Ado/Plugin/Vest.pm",
-         "version" : "0.04"
+         "version" : "0.05"
       }
    },
-   "release_status" : "unstable",
-   "version" : "0.04"
+   "release_status" : "stable",
+   "version" : "0.05"
 }

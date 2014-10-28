@@ -3,7 +3,7 @@ use Mojo::Base qw(Ado::Plugin);
 use Mojo::Util qw(decamelize slurp);
 File::Spec::Functions->import(qw(catfile));
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 sub register {
     my ($self, $app, $conf) = shift->initialise(@_);
@@ -12,28 +12,59 @@ sub register {
     $app->config(__PACKAGE__, $conf);
     $app->defaults('vest_base_url' => $$conf{vest_base_url});
     $self->_create_table($app, $conf);
+    $self->_add_data($app, $conf);
+
     return $self;
+}
+
+sub _add_data {
+    my ($self, $app, $conf) = @_;
+    return unless $conf->{vest_data_sql_file};
+
+    return $self->_do_sql_file($app->dbix->dbh, $conf->{vest_data_sql_file});
 }
 
 sub _create_table {
     my ($self, $app, $conf) = @_;
     return unless $conf->{vest_schema_sql_file};
-    my $dbix = $app->dbix;
+    my $dbh = $app->dbix->dbh;
     my $table =
-      $dbix->dbh->table_info(undef, undef, 'vest', "'TABLE'")->fetchall_arrayref({});
+      $dbh->table_info(undef, undef, 'vest', "'TABLE'")->fetchall_arrayref({});
     return if @$table;
+    return $self->_do_sql_file($dbh, $conf->{vest_schema_sql_file});
+}
 
-    #Always execute this file because we may have table changes
-    my $sql_file = catfile($self->config_dir, $conf->{vest_schema_sql_file});
-    my $SQL = slurp($sql_file);
+sub _do_sql_file {
+    my ($self, $dbh, $sql_file) = @_;
+    $self->app->log->debug('_do_sql_file:' . $sql_file)
+      if $Ado::Control::DEV_MODE;
 
-    #Remove multiline comments
-    $SQL =~ s|/\*.+\*/||gsmx;
-    for my $statement (split /;/, $SQL) {
-        $dbix->dbh->do($statement) if $statement =~ /\S+/;
-    }
+    my $SQL = slurp(catfile($self->config_dir, $sql_file));
+
+    #Remove multi-line comments
+    $SQL =~ s|/\*+.+?\*/\s+?||gsmx;
+    $self->app->log->debug('$SQL:' . $SQL)
+      if $Ado::Control::DEV_MODE;
+    local $dbh->{RaiseError} ||= 1;
+    my $statement = '';
+    eval {
+        $dbh->begin_work;
+        for my $st (split /;/smx, $SQL) {
+            $statement = $st;
+
+            #$self->app->log->debug('$statement:'.$statement);
+            $dbh->do($st) if $st =~ /\S+/smx;
+        }
+        $dbh->commit;
+    } || do {
+        $dbh->rollback;
+        my $e = "\nError in statement:$statement\n$@";
+        $self->app->log->error($e);
+        Carp::croak($e);
+    };
     return;
 }
+
 1;
 
 =pod
