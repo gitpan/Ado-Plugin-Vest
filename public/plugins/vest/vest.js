@@ -26,8 +26,16 @@
     $('#message_form').submit(validate_and_send_message);
     // Send message by pressing Enter.
     $('#message_form [name="message"]').keydown(function(e){
-      if ( (!e.ctrlKey && !e.shiftKey ) && e.which == 13 ){
+      if ( (!e.ctrlKey && !e.shiftKey ) && (e.key =='Enter'|| e.which == 13) ){
         $('#message_form').submit();
+      }
+    });
+    //behavior for contact form
+    $('#contacts form').submit(function(){return false});
+    $('#contacts form .prompt').keydown(function(e){
+      if ( e.altKey ){return false}
+      if ( this.value.length > 3 ){
+        find_contacts(e)
       }
     });
   }); // end $(document).ready(function($)
@@ -58,8 +66,6 @@
     messages.html('');
     //Save it for later use by validate_and_send_message
     VestTalk.json_messages = json_messages;
-    //
-    //console.log(json_messages);
     var prev_msg = {};
     $(json_messages.data).each(function(i, msg) {
 
@@ -201,7 +207,7 @@
       //TODO: replace the alert with a beautiful SemanticUI popup or box
       alert('error:' + data.responseText);
       message_field.addClass('error');
-      //console.log(data);
+
     });
     return false;
   } // end function validate_message(e){
@@ -274,5 +280,42 @@
       }
     } // end for( var i in...
   } //end function append_messages_from_json(new_json_messages)
-
+  /**
+   * Finds new contacts for a user and displays them in div.results.
+   * TODO: Replace this with Semantic UI Search module when API docs are ready.
+   */
+  function find_contacts(e) {
+    var name = $(e.target);
+    var form = name.parent().parent();
+    $.get(
+      form.attr('action'),
+      form.serialize(),
+      function(results) {
+        $('#contacts .results li').remove();
+        for (var i = results.data.length - 1; i >= 0; i--) {
+          var template = $($('#search_template').html()); //copy
+          template.attr('data-id',results.data[i].id);
+          template.attr('data-name',results.data[i].name);
+          template.text(results.data[i].name);
+          template.click(function(e){add_contact(e,template)});
+          $('#contacts .results').append(template);
+        };
+    });
+  }//end function find_contacts(e)
+  function add_contact (e, user_item_template) {
+    //add to vest_contacts_$user->id
+    var user = $(e.target);
+    $.post(
+      user.data('href'),
+      {id: user.data('id')},
+      // success
+      function add_contact_success (data,textStatus, xhr) {
+        user_item_template.click(new_talk);
+        //prepend to contacts
+        $('#contacts ul.contacts').prepend(user_item_template);
+        $('#contacts ul.results').html('');//clean results
+      }
+    );
+    return false
+  }
 })(jQuery); //execute

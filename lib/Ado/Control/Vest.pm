@@ -1,6 +1,51 @@
 package Ado::Control::Vest;
 use Mojo::Base 'Ado::Control';
 use Time::Piece;
+use Ado::Model::Users;
+
+#validation template for action add.
+my $add_contact_validation_template = {
+    id => {
+        'required' => 1,
+        like       => qr/^\d{1,11}$/
+    },
+};
+
+sub add_contact {
+    my $c = shift;
+    $c->require_formats('json') || return;
+    my $vresult = $c->validate_input($add_contact_validation_template);
+
+    state $log = $c->app->log;
+
+    #400 Bad Request
+    if ($vresult->{errors}) {
+        $log->error('Validation error:' . $c->dumper($vresult));
+        return $c->render(
+            status => $vresult->{json}{code},
+            json   => $vresult->{json}
+        );
+    }
+    state $GR  = 'Ado::Model::Groups';
+    state $UG  = 'Ado::Model::UserGroup';
+    state $SQL = $UG->SQL('SELECT') . ' WHERE user_id=? AND group_id=?';
+    my $contact_id = $vresult->{output}->{id};
+    my $user       = $c->user;
+    my $group      = $GR->by_name('vest_contacts_' . $user->id);
+    my $ug         = $UG->query($SQL, $contact_id, $group->id);
+
+    #already a contact
+    return $c->render(text => '', status => 302)
+      if $ug->user_id;
+
+    $ug = $UG->create(
+        user_id  => $contact_id,
+        group_id => $group->id,
+    );
+
+    $c->render(text => '', status => 204);
+    return;
+}
 
 my $list_args_checks = {
     limit => {
@@ -10,30 +55,6 @@ my $list_args_checks = {
         allow => sub { $_[0] =~ /^\d+$/ ? 1 : defined($_[0] = 0); }
     },
 };
-
-#available messages on this system - disabled
-sub list {
-    my $c = shift;
-    $c->require_formats('json') || return;
-    my $args = Params::Check::check(
-        $list_args_checks,
-        {   limit  => $c->req->param('limit')  || 20,
-            offset => $c->req->param('offset') || 0,
-        }
-    );
-
-    $c->res->headers->content_range(
-        "messages $$args{offset}-${\($$args{limit} + $$args{offset})}/*");
-    $c->debug("rendering json only [$$args{limit}, $$args{offset}]");
-
-    #content negotiation
-    return $c->respond_to(
-        json => $c->list_for_json(
-            [$$args{limit}, $$args{offset}],
-            [Ado::Model::Vest->select_range($$args{limit}, $$args{offset})]
-        )
-    );
-}
 
 #Lists last 20 messages from a talk of the current user (by subject_message_id)
 sub list_messages {
@@ -95,8 +116,8 @@ sub list_talks {
     return $c->respond_to(json => $c->list_for_json([$$args{limit}, $$args{offset}], $talks));
 }
 
-#validation template for action add.
-my $add_input_validation_template = {
+#validation template for action create.
+my $create_validation_template = {
     from_uid => {
         'required' => 1,
         like       => qr/^\d{1,11}$/
@@ -126,9 +147,9 @@ my $add_input_validation_template = {
 #Adds a new message. Status 201 on success, 400 on validate,5xx on faill
 sub create {
     my $c      = shift;
-    my $result = $c->validate_input($add_input_validation_template);
+    my $result = $c->validate_input($create_validation_template);
 
-    #$c->debug('$add_input_validation_template:' . $c->dumper($add_input_validation_template));
+    #$c->debug('$create_validation_template:' . $c->dumper($create_validation_template));
     #$c->debug('$result:' . $c->dumper($result));
 
     #400 Bad Request
@@ -141,16 +162,7 @@ sub create {
       eval { Ado::Model::Vest->create(%{$result->{output}}, tstamp => time) };
     if ($message) {
 
-        # May be?
-        # $c->render(
-        #     status => 200,
-        #     json   => {
-        #         code   => 200,
-        #         status => 'success',
-        #         data   => $message->data
-        #     }
-        # );
-        # Or just 201 Created?
+        #201 Created
         $c->res->headers->location(
             $c->url_for('/' . $c->current_route . '/id/' . $message->id => format => 'json'));
         return $c->render(status => 201, text => '');
@@ -217,10 +229,9 @@ sub update {
             data    => 'resource_not_found'
         }
     ) unless $data;
-    $c->debug('$data:', $c->dumper($data));
 
     #Only the message can be updated. This logic belongs to the model maybe?!?
-    my $update_template = {message => $$add_input_validation_template{message},};
+    my $update_template = {message => $$create_validation_template{message},};
 
     my $result = $c->validate_input($update_template);
 
@@ -257,7 +268,7 @@ sub screen {
     my $to_json = {
         user => {%{$user->data}, name => $user->name},
         talks => Ado::Model::Vest->talks($user, int($c->param('limit') || 20), 0),
-        contacts => [Ado::Model::Users->by_group_name('vest_contacts_for_' . $user->login_name)],
+        contacts => [Ado::Model::Users->by_group_name('vest_contacts_' . $user->id)],
         routes   => $routes,
     };
 
@@ -266,6 +277,75 @@ sub screen {
         html => $to_json,
     );
     return;
+}
+my $users_validation_template = {
+    name => {
+        'required' => 1,
+        size       => [1, 255]
+    },
+};
+my $U = 'Ado::Model::Users';
+$U->SQL('find_users_by_name' => <<"SQL");
+    SELECT u.id, u.first_name, u.last_name FROM users u, user_group ug
+    WHERE (u.id = ug.user_id
+            AND ug.group_id=(SELECT g.id FROM groups g WHERE name='vest')
+        ) AND
+       -- Exclude existing contacts - members of vest_contacts_\$current_user->id
+       u.id NOT IN(
+            SELECT user_id from user_group WHERE user_id = u.id AND
+            group_id=(SELECT id FROM groups WHERE name=?)) AND
+       --exclude the current user
+       u.id != ? AND
+       -- from group vest
+    
+       (disabled=0 AND (stop_date>? OR stop_date=0) AND start_date<?) AND
+      (
+        (upper(first_name) LIKE upper(?) AND upper(last_name) LIKE upper(?)) OR
+        (upper(last_name) LIKE upper(?) AND upper(first_name) LIKE upper(?)) OR
+        (upper(email) LIKE upper(?))
+      )
+       ${\ $U->SQL_LIMIT('?', '?')}
+SQL
+
+#Searches and lists users belonging to the group vest by first and last name.
+sub users {
+    my ($c) = @_;
+    $c->require_formats('json') || return;
+    $c->req->param(name => $c->stash('name') // '') if !$c->req->param('name');
+    my $result = $c->validate_input($users_validation_template);
+    state $log = $c->app->log;
+
+    #400 Bad Request
+    if ($result->{errors}) {
+        $log->error($c->dumper($result));
+        return $c->render(
+            status => $result->{json}{code},
+            json   => $result->{json}
+        );
+    }
+
+    #Search by name
+    my $c_uid = $c->user->id;
+    my $name  = Mojo::Util::trim($result->{output}{name});
+    my ($first_name, $last_name) = map { uc($_) } split /\s+/, $name;
+    $last_name //= '';
+
+    #Remove everything after "@" to prevent searching for all users @gmail
+    $first_name =~ s/\@.+//;
+
+    my $limit  = 50;
+    my $offset = 0;
+    my $time   = time;
+    my @a      = $U->query(
+        $U->SQL('find_users_by_name'), "vest_contacts_$c_uid",
+        $c_uid,                        $time,
+        $time,                         "\%$first_name\%",
+        "\%$last_name\%",              "\%$first_name\%",
+        "\%$last_name\%",              "\%$first_name\%\@%",
+        $limit,                        $offset
+    );
+    my @data = map { +{%{$_->data}, name => $_->name} } @a;
+    return $c->respond_to(json => $c->list_for_json([$limit, $offset], \@data));
 }
 
 1;
@@ -281,13 +361,13 @@ Ado::Control::Vest - The controller to manage messages.
 =head1 SYNOPSIS
 
   #in your browser go to
-  http://your-host/vest/list
-  #or
   http://your-host/vest
   #and
   http://your-host/vest/edit/$id
   #and
-  http://your-host/vest/add
+  http://your-host/vest/create
+  
+  #OR just have a chat with a friend.
 
 =head1 DESCRIPTION
 
@@ -304,6 +384,13 @@ L<Ado::Control::Vest> inherits all methods from L<Ado::Control> and implements
 the following new ones. These methods are mapped to actions.
 See C<etc/plugins/vest.conf>.
 
+=head2 add_contact
+
+Adds a contact to the list of contacts for the current user.
+Invoked only via POST request. The only parameter is C<id> - the id of the user to be added. See C<Ado-Plugin-Vest/public/plugins/vest/vest.js> for example usage.
+Reenders no content with header 204 in case the user is added or 302 if the
+user was already added before.
+
 =head2 create
 
 Creates a new message.
@@ -312,16 +399,10 @@ pointing to the new resource so the user agent can fetch it eventually.
 See L<http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.2.2>
 and L<Ado::Model::Vest/create>.
 
-=head2 list
 
-Displays the messages this system has.
-Uses the request parameters C<limit> and C<offset> to display a range of items
-starting at C<offset> and ending at C<offset>+C<limit>.
-This method serves the resource C</вест/list.json>.
-If other format is requested returns status 415 with C<Content-location> header
-pointing to the proper URI.
-See L<http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.4.16> and
-L<http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.14>.
+=head2 disable
+
+Disables a message . Not implemented yet
 
 =head2 list_messages
 
@@ -352,9 +433,21 @@ Displays a message. Not implemented yet
 
 Updates a message. Not implemented yet
 
-=head2 disable
+=head2 users
 
-Disables a message . Not implemented yet
+Performs case insensitive search by first and last name and lists users
+belonging to the group vest. Renders the first 50 results in JSON format.
+
+    #Request
+    http://localhost:3000/vest/users?name=кРа%20бер&format=json
+    http://localhost:3000/vest/users/кРа%20бер.json
+    #Response
+    {
+    "links":[
+        {"rel":"self","href":"\/vest\/users\/%D0%BA%D0%A0%D0%B0%20%D0%B1%D0%B5%D1%80.json?limit=50&offset=0"}],
+        "data":[
+            {"name":"Красимир Беров","last_name":"Беров","first_name":"Красимир","id":7}]
+    }
 
 =head1 SPONSORS
 

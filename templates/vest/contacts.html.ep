@@ -1,16 +1,48 @@
 <!-- contacts.html.ep 
 TODO: Contacts implementation.
-For every user there must be a group named vest_contacts_$login_name
-where $login_name is the user's username "users.login_name".
+For every user there must be a group named vest_contacts_$id
+where $id is the user's id "users.id".
 This sidebar will list the members of this group.
 By adding some user to this group it is added to the user's contact
 referred by $login_name.
 -->
-<aside id="contacts" class="ui right floating styled sidebar">
-  <ul class="ui selection list">
+<aside id="contacts" class="ui right menu push sidebar">
+  <form class="ui search" action="<%= $vest_base_url .'/users.json' %>">
+    <div class="ui fluid icon input">
+      <input class="prompt" placeholder="Search:  Иван Петров"
+        name="name" type="text" autocomplete="off" />
+      <i class="search icon" ></i>
+    </div>
+  </form>
+  <ul class="ui results selection list"></ul>
+  <!--
+  <form class="ui remote search" action="<%= $vest_base_url .'/users.json' %>">
+    <div class="ui fluid icon input">
+      <input class="prompt" placeholder="Search:  Иван Петров"
+        name="name" type="text" autocomplete="off" />
+      <i class="search icon" ></i>
+    </div>
+    <div class="results"></div>
+  </form>
+  -->
+%=javascript begin
+// TODO: Wait for proper documentation and rewrite using th Semantic API
+//$('#contacts .search .prompt').api({url: $('#contacts .search').attr('action') +'?name={value}'});
+%=end
+
+  <div class="ui horizontal section divider">
+    <i class="circular vede icon"></i>
+  </div>
+
+  <ul class="ui selection list contacts">
     % for my $u (@$contacts){
     <li class="item" id="u<%= $u->{id} %>"
     data-id="<%= $u->{id} %>" data-name="<%= $u->{name} %>"><%= $u->{name} %></li>
     % }
   </ul>
+    <template id="search_template"
+    ><li class="item" data-id="" data-name=""
+    data-href="<%= url_for("$vest_base_url/add_contact") %>">
+      Jon Smith</li>
+  </template>
 </aside>

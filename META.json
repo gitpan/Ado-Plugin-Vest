@@ -8,12 +8,11 @@
    "keywords" : [
       "Ado",
       "Mojolicious",
-      "realtime",
       "web",
       "ERP",
       "REST",
-      "CMS",
       "Messaging",
+      "chat",
       "enterprise"
    ],
    "license" : [
@@ -37,7 +36,7 @@
       },
       "configure" : {
          "requires" : {
-            "Ado" : "0.71",
+            "Ado" : "0.76",
             "Module::Build" : "0.42"
          }
       },
@@ -46,7 +45,8 @@
             "Ado" : "0.73",
             "Mojolicious" : "0",
             "Mojolicious::Plugin::DSC" : "0",
-            "Mojolicious::Plugin::SemanticUI" : "0.08"
+            "Mojolicious::Plugin::SemanticUI" : "0.08",
+            "perl" : "v5.14.0"
          }
       }
    },
@@ -59,7 +59,7 @@
       },
       "Ado::Plugin::Vest" : {
          "file" : "lib/Ado/Plugin/Vest.pm",
-         "version" : "0.08"
+         "version" : "0.09"
       }
    },
    "release_status" : "stable",
@@ -71,5 +71,5 @@
          "url" : "https://github.com/kberov/Ado-Plugin-Vest"
       }
    },
-   "version" : "0.08"
+   "version" : "0.09"
 }

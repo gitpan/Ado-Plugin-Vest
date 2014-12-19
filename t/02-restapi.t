@@ -5,8 +5,6 @@ use Test::Mojo;
 use Mojo::Util;
 use List::Util qw(shuffle);
 
-
-my $OE  = $^O =~ /win/i ? 'cp866' : 'utf8';
 my $t1  = Test::Mojo->new('Ado');
 my $app = $t1->app;
 my $dbh = $app->dbix->dbh;
@@ -19,6 +17,14 @@ $app->routes->find('controlleractionid')->remove();
 
 isa_ok($app->plugin('vest'), 'Ado::Plugin::Vest');
 my $vest_base_url = $app->config('Ado::Plugin::Vest')->{vest_base_url};
+my $t1_uid = $app->dbix->query('SELECT id from users where login_name=?', 'test1')->hash->{id};
+my $t2_uid = $app->dbix->query('SELECT id from users where login_name=?', 'test2')->hash->{id};
+
+#for test2 to add test1 to his contacts
+$app->dbix->query(
+    "DELETE FROM user_group where group_id=(SELECT id FROM groups WHERE name='vest_contacts_'||?)",
+    $t2_uid
+);
 
 #$t1 login first
 subtest 't1_login' => sub {
@@ -53,33 +59,33 @@ subtest 't2_login' => sub {
         digest         => Mojo::Util::sha1_hex($csrf_token . Mojo::Util::sha1_hex('test2test2')),
     };
     $t2->post_ok('/login' => {} => form => $form_hash)->status_is(302);
+
+# find a user
+    $t2->get_ok("$vest_base_url/users.json?name=est 1")->status_is(200)
+      ->json_is('/data/0/name' => 'Test 1', 'Test1 found by name')
+      ->json_is('/data/1/name' => 'Application Вест', 'vest@localhost found by email')
+      ->json_like('/links/0/href' => qr/users.json\?limit=50&offset=0/);
+    $t2->get_ok("$vest_base_url/users.json?name=guest")->status_is(200)
+      ->json_is('/data/0' => undef, 'Guest can not be found.')    #'Guest'
 };
-
-
-#reload
-#{route => '/$vest_base_url', via => ['GET'],  to => 'vest#list',}
-#no format
-
-=pod
-$t1->get_ok("$vest_base_url/list")->status_is('415', '415 - Unsupported Media Type ')
-  ->content_type_is('text/html;charset=UTF-8')->header_like('Content-Location' => qr|\.json$|x)
-  ->content_like(qr|\.json</a>\!|x);
-
-#with format
-$t1->get_ok("$vest_base_url/list.json")->status_is('200', 'Status is 200')
-  ->content_type_is('application/json')->json_has('/data')->json_has('/links')
-  ->json_is('/links/0/rel' => 'self', '/links/0/rel is self')
-  ->json_like('/links/0/href' => qr'\.json\?limit=20\&offset=0')
-  ->json_is('/links/1' => undef, '/links/1 is not present')
-  ->json_is('/data'    => [],    '/data is empty');
-=cut
 
 #Play with several messages.
 #{route => '/вест', via => ['POST'], to => 'vest#add',},
+
+#add_contact
+$t2->post_ok("$vest_base_url/add_contact", {Accept => 'text/html'}, form => {id => $t1_uid})
+  ->status_is('415');
+$t2->post_ok("$vest_base_url/add_contact", form => {id => $t1_uid})->status_is('204')
+  ->content_is('');
+$t2->post_ok("$vest_base_url/add_contact", form => {id => $t1_uid})->status_is('302')
+  ->content_is('');
+$t2->post_ok("$vest_base_url/add_contact")->status_is('400')
+  ->json_is('/message/id' => ['required']);
+
 $t1->post_ok(
     $vest_base_url,
     form => {
-        from_uid           => 3,
+        from_uid           => $t1_uid,
         subject_message_id => 0,
 
         #to_uid   => 4,
@@ -98,7 +104,7 @@ $t1->post_ok(
 $t1->post_ok(
     $vest_base_url,
     form => {
-        from_uid           => 3,
+        from_uid           => $t1_uid,
         subject_message_id => 0,
 
         #to_uid   => 4,
@@ -110,7 +116,7 @@ $t1->post_ok(
 $t1->post_ok(
     $vest_base_url,
     form => {
-        from_uid           => 3,
+        from_uid           => $t1_uid,
         subject_message_id => 0,
         to_uid             => 'не число',
         subject            => 'Какъв приятен разговор!',
@@ -119,23 +125,26 @@ $t1->post_ok(
   )->status_is('400', 'Status is 400')->json_is('/message/to_uid/0/', 'like')
   ->content_like(qr/"message"\:\{"to_uid"\:\["like"/x, 'erros ok: to_uid is not alike ');
 
-my $s_m_id = 0;
-for my $id (1, 3, 5) {
+my ($last_id, $s_m_id) = (0, 0);
+my $maxSQL = 'SELECT MAX(id) as id from vest';
+
+for (1, 2, 3) {
     $t1->post_ok(
         $vest_base_url,
         form => {
-            from_uid => 3,
-            to_uid   => 4,
+            from_uid => $t1_uid,
+            to_uid   => $t2_uid,
             subject  => 'разговор' . time,
 
             # $s_m_id==0 =>new talk
             subject_message_id => $s_m_id,
-            message            => "Здравей, Приятел! $id"
+            message            => "Здравей, Приятел!"
         }
       )->status_is('201', 'ok 201 - Created')->header_like(Location => qr/\/id\/\d+/)
       ->content_is('');
     my $location = $t1->tx->res->headers->header('Location');
     ($s_m_id) = $location =~ qr/\/id\/(\d+)/ unless $s_m_id;
+    my ($id) = $location =~ qr/\/id\/(\d+)/;
 
 =pod
 {   route  => '/вест/:id',
@@ -147,23 +156,23 @@ for my $id (1, 3, 5) {
 
     $t2->get_ok("$vest_base_url/$id.json")
       ->status_is('200', "$vest_base_url/$id.json" . ' Status is 200')
-      ->json_is('/data/message', "Здравей, Приятел! $id", "ok created $id");
-    my $next = $id + 1;
+      ->json_is('/data/message', "Здравей, Приятел!", "ok created $id");
+    my $next = $app->dbix->query($maxSQL)->hash->{id} + 1;
 
 
     #reply from a friend
-    $t2->post_ok(
-        $vest_base_url,
-        form => {
-            from_uid           => 4,
-            to_uid             => 3,
-            subject            => 'Какъв приятен разговор',
-            subject_message_id => $s_m_id,
-            message            => "Oh, salut mon ami! $next"
-        }
-      )->status_is('201', 'ok 201 - Created')->header_like(Location => qr"/id/$next")
-      ->content_is('');
+    my $form = {
+        from_uid           => $t2_uid,
+        to_uid             => $t1_uid,
+        subject            => 'Какъв приятен разговор',
+        subject_message_id => $s_m_id,
+        message            => "Oh, salut mon ami! $next"
+    };
+    $t2->post_ok($vest_base_url, form => $form)->status_is('201', 'ok 201 - Created')
+      ->header_like(Location => qr"/id/$next")->content_is('');
+    $last_id = $next;
 
+    #note "$last_id, form:".$app->dumper($form);
 }    #end for my $id (1, 3, 5)
 
 =pod
@@ -175,24 +184,27 @@ for my $id (1, 3, 5) {
 =cut
 
 $t1->put_ok(
-    "$vest_base_url/5",
+    "$vest_base_url/$last_id",
     form => {
-        to_uid             => 4,
-        from_uid           => 3,
+        to_uid             => $t2_uid,
+        from_uid           => $t1_uid,
         subject            => 'Какъв приятен разговор',
-        subject_message_id => 1,
+        subject_message_id => $s_m_id,
         message            => "Let's speak some English."
     }
-)->status_is('204', 'Status is 204')->content_is('', 'ok updated id 5');
+)->status_is('204', 'Status is 204')->content_is('', "ok updated id $last_id");
 
-$t1->get_ok("$vest_base_url/5.json")->status_is('200', 'Status is 200')
-  ->json_is('/data/message',  "Let's speak some English.", 'ok message 5 is updated')
-  ->json_is('/data/to_uid',   4,                           'ok message 5 to_uid is unchanged')
-  ->json_is('/data/from_uid', 3,                           'ok message 5 from_uid is unchanged')
-  ->json_is(    #becuse it belongs to a talk with id 1
-    '/data/subject', '', 'ok message 5 subject is empty'
-  )->json_is('/data/subject_message_id', 1, 'ok message 5 subject_message_id is unchanged');
+$t1->get_ok("$vest_base_url/$last_id.json")->status_is('200', 'Status is 200')
+  ->json_is('/data/message', "Let's speak some English.", "ok message $last_id is updated")
+  ->json_is('/data/to_uid',   $t1_uid, "ok message $last_id to_uid is unchanged")
+  ->json_is('/data/from_uid', $t2_uid, "ok message $last_id from_uid is unchanged")
+  ->json_is(    #because it belongs to a talk with id $last_id
+    '/data/subject', '', "ok message $last_id subject is empty"
+  )
+  ->json_is('/data/subject_message_id', $s_m_id,
+    "ok message $last_id subject_message_id is unchanged");
 
+#note $app->dumper($t1->tx->res->json);
 #=pod
 #{   route  => '/вест/:id',
 #    params => {id => qr/\d+/},
@@ -201,9 +213,9 @@ $t1->get_ok("$vest_base_url/5.json")->status_is('200', 'Status is 200')
 #},
 #=cut
 
-$t1->delete_ok("$vest_base_url/1")->status_is('200', 'Status is 200')
+$t1->delete_ok("$vest_base_url/$last_id")->status_is('200', 'Status is 200')
   ->content_is('not implemented...', 'ok not implemented...yet');
-ok($dbh->do('DROP TABLE IF EXISTS vest'), "Table vest was dropped.");
+ok($app->dbix->dbh->do('DROP TABLE IF EXISTS vest'), "Table vest was dropped.");
 
 # Reload plugin to recreate the table
 $app->plugin('vest');
@@ -219,28 +231,28 @@ my @message = qw(
 # Setup: Add some talks and messages in them.
 # Visible by both users test1(3), and test2(4)
 my @talk_x = (
-    {   from_uid           => 3,
-        to_uid             => 4,
+    {   from_uid           => $t1_uid,
+        to_uid             => $t2_uid,
         subject            => 'разговор',
         subject_message_id => 0,
         message            => "Здравей, Приятел!"
     },
-    {   from_uid           => 4,
-        to_uid             => 3,
+    {   from_uid           => $t2_uid,
+        to_uid             => $t1_uid,
         subject            => 'разговор' . time,
-        subject_message_id => 1,
+        subject_message_id => $s_m_id,
         message            => "Здрасти!"
     },
-    {   from_uid           => 4,
-        to_uid             => 3,
+    {   from_uid           => $t2_uid,
+        to_uid             => $t1_uid,
         subject            => 'разговор' . time,
-        subject_message_id => 1,
+        subject_message_id => $s_m_id,
         message            => "Как си?"
     },
-    {   from_uid           => 3,
-        to_uid             => 4,
+    {   from_uid           => $t1_uid,
+        to_uid             => $t2_uid,
         subject            => 'разговор' . time,
-        subject_message_id => 1,
+        subject_message_id => $s_m_id,
         message            => "Благодаря, добре. А ти?"
     }
 );
@@ -250,7 +262,7 @@ my @talk_y    = ();
 my $talk_y_id = scalar(@talk_x) + 1;
 for ($talk_y_id .. 25) {
     push @talk_y,
-      { from_uid           => 3,
+      { from_uid           => $t1_uid,
         to_uid             => 0,
         subject            => ($talk_y_id == $_ ? 'topic Y' : ''),
         subject_message_id => ($talk_y_id == $_ ? 0 : $talk_y_id),
@@ -263,7 +275,7 @@ my @talk_z    = ();
 my $talk_z_id = scalar(@talk_y) + scalar(@talk_x) + 1;
 for ($talk_z_id .. 40) {
     push @talk_z,
-      { from_uid           => 3,
+      { from_uid           => $t1_uid,
         to_uid             => 0,
         subject            => ($talk_z_id == $_ ? 'topic Z' : ''),
         subject_message_id => ($talk_z_id == $_ ? 0 : $talk_z_id),
@@ -279,18 +291,19 @@ Ado::Model::Vest->create(%$_, tstamp => $time) for (@talk_x, @talk_y, @talk_z);
 # Listing talks of the current user - usually in the left sidebar
 $t1->get_ok("$vest_base_url/talks.json")->status_is('200', 'Status is 200')
   ->content_type_is('application/json')->json_has('/data')
-  ->json_is('/data/2/id' => 1, 'my first talk')->json_is('/data/1/id' => 5, 'my second talk')
-  ->json_is('/data/0/id' => 26, 'my third talk');
-$t2->get_ok("$vest_base_url/talks.json")->json_is('/data/0/id' => 1, 'my first talk')
-  ->json_is('/data/1/id' => undef, 'no second talk')
-  ->json_is('/data/2/id' => undef, 'no third talk');
+  ->json_is('/data/2/id' => $s_m_id, 'my first talk')
+  ->json_is('/data/1/id' => 5, 'my second talk')->json_is('/data/0/id' => 26, 'my third talk');
+$t2->get_ok("$vest_base_url/talks.json")->json_has('/data/0/id', 'my first talk');
 
 # Listing messages from a talk for the current user
+$t2->get_ok("$vest_base_url/messages/1", {Accept => 'text/html'})->status_is('415');
+$t2->get_ok("$vest_base_url/messages/0")->status_is('400')
+  ->json_is('/message/id' => ['required']);
+$t2->get_ok("$vest_base_url/messages/1?offset=1");
 $t1->get_ok("$vest_base_url/messages/1.json")->status_is('200', 'Status is 200')
   ->content_type_is('application/json')->json_has('/data')
   ->json_is('/links/1'        => undef,              '/links/1 is not present')
   ->json_is('/data/0/id'      => 1,                  '/data is sorted properly')
-  ->json_is('/data/3/id'      => 4,                  '/data is sorted properly')
   ->json_is('/data/0/subject' => 'разговор', '/data/0/subject is ok');
 
 $t1->get_ok("$vest_base_url/messages/5.json?limit=10")->json_is(
@@ -305,8 +318,8 @@ $t1->get_ok("$vest_base_url/messages/5.json?limit=10")->json_is(
 note('Creating more messages in many talks. This may take a while...');
 
 for my $talk (14 .. 25) {
-    my $to_uid   = 4;                      #Test 2
-    my $from_uid = 3;                      #Test 1
+    my $to_uid   = $t2_uid;                #Test 2
+    my $from_uid = $t1_uid;                #Test 1
     my @from_to  = ($from_uid, $to_uid);
     my $subject     = "Разговор " . ucfirst(join(' ', shuffle(@message[0 .. 6])) . '.');
     my $lastmessage = 2;
@@ -338,9 +351,13 @@ for my $talk (14 .. 25) {
       ->json_is('/user/id' => $to_uid)->json_is('/routes/0/params' => undef)
       ->json_is('/talks/0/to_guid' => 0)->json_is('/contacts/0/id' => $from_uid)
       ->json_is('/talks/0/subject' => $subject);
+
 }
+$t2->get_ok("$vest_base_url/talks", {Accept => 'text/html'})->status_is('415');
+$t2->get_ok("$vest_base_url/talks.json?offset=1&limit=2")->json_has('/data/1/id')
+  ->json_hasnt('/data/2/id');
 
-
+#note $app->dumper($t2->tx->res->json);
 #HTML UI
 $t1->get_ok("$vest_base_url")->element_exists('main.ui.container', 'main.ui.container');
 
